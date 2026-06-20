@@ -16,14 +16,20 @@ pub const screen_height = 600;
 pub const title = "Wild Circus";
 const animal_spawn_rate = 1.5;
 
+// Player
 player: *Player,
+// Animals
 animals_beaten: u32,
 animals: std.ArrayList(Animal),
 animal_last_spawned: f64 = 0,
+// IO + more
 allocator: std.mem.Allocator,
 io: std.Io,
+// game running stuff
 camera: rl.Camera2D,
 mainsound: ?rl.Sound = null,
+// scene management
+scene: Scene = .startmenu,
 
 pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
     const player = try Player.new(allocator);
@@ -59,15 +65,21 @@ pub fn deinit(game: *Game) void {
 
 pub fn update(game: *Game) !void {
     const delta = rl.getFrameTime();
+    switch (game.scene) {
+        .playing => try game.update_playing(delta),
+        .startmenu => try game.update_startmenu(delta),
+        .deathmenu => try game.update_deathmenu(delta),
+    }
+}
+
+fn update_playing(game: *Game, delta: f32) !void {
     // player updates
     game.player.move(delta);
     game.player.update(delta);
     if (game.player.is_dead()) {
         std.debug.print("You died!\n", .{});
-        // TODO: endscreen
-        game.player.health = 100;
-        game.player.x = 0;
-        game.player.y = 0;
+        game.switch_scene(.deathmenu);
+        return;
     }
     // if player collides with animal, take 10 damage
     for (game.animals.items) |*a| {
@@ -80,8 +92,10 @@ pub fn update(game: *Game) !void {
     game.camera.target = v2(game.player.x, game.player.y);
     // sound
     if (builtin.mode != .Debug) {
-        if (!rl.isSoundPlaying(game.mainsound.?)) {
-            rl.playSound(game.mainsound.?);
+        if (game.mainsound) |mainsound| {
+            if (!rl.isSoundPlaying(mainsound)) {
+                rl.playSound(mainsound);
+            }
         }
     }
     // hitting stuff with weapon
@@ -116,8 +130,28 @@ pub fn update(game: *Game) !void {
     }
 }
 
+fn update_startmenu(game: *Game, delta: f32) !void {
+    _ = game;
+    _ = delta;
+    // TODO: implement (if needed, if its not handled by UI)
+}
+
+fn update_deathmenu(game: *Game, delta: f32) !void {
+    _ = game;
+    _ = delta;
+    // TODO: implement (if needed, if its not handled by UI)
+}
+
 pub fn draw(game: *Game) !void {
     rl.clearBackground(.white);
+    switch (game.scene) {
+        .startmenu => try game.draw_startmenu(),
+        .playing => try game.draw_playing(),
+        .deathmenu => try game.draw_deathmenu(),
+    }
+}
+
+fn draw_playing(game: *Game) !void {
     rl.beginMode2D(game.camera);
     defer rl.endMode2D();
 
@@ -126,6 +160,62 @@ pub fn draw(game: *Game) !void {
         a.draw();
     }
     arena.draw();
+}
+
+fn draw_startmenu(game: *Game) !void {
+    const titlefontsize = 32;
+    const textstart = screen_width / 2 - @divTrunc(rl.measureText(title, titlefontsize), 2);
+    rl.drawText(title, textstart, 200, titlefontsize, .green);
+
+    const buttonrect = rl.Rectangle.init(screen_width / 2 - 75, 250, 150, 40);
+    if (rg.button(buttonrect, "Start Game")) {
+        game.switch_scene(.playing);
+    }
+}
+
+fn draw_deathmenu(game: *Game) !void {
+    const textfontsize = 32;
+    const text = "The animals got you!";
+    const textstart = screen_width / 2 - @divTrunc(rl.measureText(text, textfontsize), 2);
+    rl.drawText(text, textstart, 200, textfontsize, .green);
+
+    const buttonrect = rl.Rectangle.init(screen_width / 2 - 75, 250, 150, 40);
+    if (rg.button(buttonrect, "Play again")) {
+        game.switch_scene(.playing);
+    }
+}
+
+const Scene = enum { startmenu, playing, deathmenu };
+// only switches, if it actually can. You cant switch from startmenu to deathmenu for example
+// also dose some resetting if needed
+fn switch_scene(game: *Game, scene: Scene) void {
+    switch (scene) {
+        .startmenu => {
+            if (game.scene == .deathmenu) {
+                game.scene = .startmenu;
+            }
+        },
+        .playing => {
+            game.reset();
+            if (game.scene == .startmenu or game.scene == .deathmenu) {
+                game.scene = .playing;
+            }
+        },
+        .deathmenu => {
+            if (game.scene == .playing) {
+                game.scene = .deathmenu;
+            }
+        },
+    }
+}
+
+fn reset(game: *Game) void {
+    game.player.health = 100;
+    game.player.x = 0;
+    game.player.y = 0;
+    game.animals_beaten = 0;
+    game.animal_last_spawned = 0;
+    game.animals.clearRetainingCapacity();
 }
 
 fn gen_rand_point(io: std.Io, radius: f32) rl.Vector2 {
