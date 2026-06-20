@@ -50,7 +50,9 @@ pub fn update(b: *Boomerang, delta: f32) void {
     // TODO: use rotation to figure out where to throw
     if (b.returning) {
         const by = (shoot_speed * delta);
-        b.go_to(b.player_x.*, b.player_y.*, by);
+        const new_pos = helpers.go_to(v2(b.x, b.y), v2(b.player_x.*, b.player_y.*), by);
+        b.x = new_pos.x;
+        b.y = new_pos.y;
     } else {
         const by = (shoot_speed * delta);
         b.go_to(b.target_x, b.target_y, by);

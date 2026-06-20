@@ -46,14 +46,10 @@ pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
 
 pub fn startup(game: *Game) anyerror!void {
     rl.initAudioDevice();
-    game.mainsound = try rl.loadSound("./resources/maintheme.mp3");
     if (builtin.mode != .Debug) {
+        game.mainsound = try rl.loadSound("./resources/maintheme.mp3");
         rl.playSound(game.mainsound.?);
     }
-
-    // add animals
-    try game.animals.append(game.allocator, Animal.new(20, 20, .pig));
-    try game.animals.append(game.allocator, Animal.new(-90, -40, .horse));
 }
 
 pub fn deinit(game: *Game) void {
@@ -70,18 +66,21 @@ pub fn update(game: *Game) !void {
         std.debug.print("You died!\n", .{});
         // TODO: endscreen
         game.player.health = 100;
+        game.player.x = 0;
+        game.player.y = 0;
     }
     // if player collides with animal, take 10 damage
-    for (game.animals.items) |a| {
-        if (rl.checkCollisionCircles(v2(game.player.x, game.player.y), Player.radius, v2(a.x, a.y), a.radius)) {
+    for (game.animals.items) |*a| {
+        if (rl.checkCollisionCircles(v2(game.player.x, game.player.y), Player.radius, v2(a.x, a.y), a.radius) and a.can_hit()) {
             game.player.take_damage(10);
+            a.reset_hit_cooldown();
         }
     }
     // camera
     game.camera.target = v2(game.player.x, game.player.y);
     // sound
-    if (!rl.isSoundPlaying(game.mainsound.?)) {
-        if (builtin.mode != .Debug) {
+    if (builtin.mode != .Debug) {
+        if (!rl.isSoundPlaying(game.mainsound.?)) {
             rl.playSound(game.mainsound.?);
         }
     }
@@ -93,6 +92,7 @@ pub fn update(game: *Game) !void {
             for (game.animals.items, 0..) |a, i| {
                 if (b.shooting and b.hits(a.x, a.y, a.radius)) {
                     try hitqueue.append(game.allocator, i);
+                    game.animals_beaten += 1;
                 }
             }
         },
@@ -106,6 +106,14 @@ pub fn update(game: *Game) !void {
         game.animal_last_spawned = 0;
     }
     game.animal_last_spawned += delta;
+
+    // update animals +
+    // make animals follow player
+    std.debug.print("Following player to position: {d},{d}\n", .{ game.player.x, game.player.y });
+    for (game.animals.items) |*a| {
+        a.update(delta);
+        a.follow_player(v2(game.player.x, game.player.y), delta);
+    }
 }
 
 pub fn draw(game: *Game) !void {

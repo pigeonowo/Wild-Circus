@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) !void {
         });
         b.getInstallStep().dependOn(emcc_step);
 
-        const html_filename = try std.fmt.allocPrint(b.allocator, "{s}.html", .{wasm.name});
+        const html_filename = try std.fmt.allocPrint(b.allocator, "index.html", .{});
         const emrun_step = emsdk.emrunStep(
             b,
             b.getInstallPath(install_dir, html_filename),
@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) !void {
         run_step.dependOn(emrun_step);
     } else {
         const exe = b.addExecutable(.{
-            .name = "serious_game",
+            .name = "wild_circus",
             .root_module = exe_mod,
         });
         b.installArtifact(exe);

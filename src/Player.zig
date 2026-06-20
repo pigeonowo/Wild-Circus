@@ -64,6 +64,7 @@ pub fn take_damage(p: *Player, amount: i32) void {
 }
 
 pub fn update(p: *Player, delta: f32) void {
+    // std.debug.print("p.health: {d}\n", .{p.health});
     p.rotation += spin_speed * delta;
     p.rotation = @mod(p.rotation, two_pi);
     switch (p.weapon) {
