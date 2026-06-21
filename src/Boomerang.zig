@@ -10,10 +10,12 @@ const toI = helpers.toI;
 const Boomerang = @This();
 
 const radius = 15;
-const weapon_offset_x = radius;
-const weapon_offset_y = radius;
+const weapon_offset_x = radius + 10;
+const weapon_offset_y = -radius + -10;
 const max_range = 175;
 const shoot_speed = 450;
+const sprite_path = "./resources/boomerang.png";
+const sprite_scale = 0.04;
 
 player_x: *f32,
 player_y: *f32,
@@ -26,6 +28,7 @@ shooting: bool = false,
 returning: bool = false,
 target_x: f32 = 0,
 target_y: f32 = 0,
+sprite: ?rl.Texture = null,
 
 pub fn new(player_x: *f32, player_y: *f32, player_rotation: *f32) Boomerang {
     return Boomerang{
@@ -39,10 +42,14 @@ pub fn new(player_x: *f32, player_y: *f32, player_rotation: *f32) Boomerang {
     };
 }
 
+pub fn init(b: *Boomerang) !void {
+    b.sprite = try rl.loadTexture(sprite_path);
+}
+
 pub fn update(b: *Boomerang, delta: f32) void {
     if (!b.shooting) {
         const offset = rl.Vector2{ .x = weapon_offset_x, .y = weapon_offset_y };
-        const rotated_offset = rl.math.vector2Rotate(offset, b.player_rotation.*);
+        const rotated_offset = rl.math.vector2Rotate(offset, std.math.degreesToRadians(b.player_rotation.*));
         b.x = b.player_x.* + rotated_offset.x;
         b.y = b.player_y.* + rotated_offset.y;
         return;
@@ -71,12 +78,12 @@ pub fn update(b: *Boomerang, delta: f32) void {
 }
 
 pub fn draw(b: Boomerang) void {
-    rl.drawCircle(@intFromFloat(b.x), @intFromFloat(b.y), radius, .red);
     if (builtin.mode == .Debug) {
         rl.drawCircle(toI(b.target_x), toI(b.target_y), 2, .red);
+        const rad = std.math.degreesToRadians(b.player_rotation.* - 90);
         const direction = rl.Vector2{
-            .x = @cos(b.player_rotation.*),
-            .y = @sin(b.player_rotation.*),
+            .x = @cos(rad),
+            .y = @sin(rad),
         };
         rl.drawLine(
             toI(b.player_x.* + direction.x * max_range),
@@ -86,14 +93,21 @@ pub fn draw(b: Boomerang) void {
             .green,
         );
     }
+    if (b.sprite) |s| {
+        const source = rl.Rectangle.init(0, 0, 1000, 1000);
+        const dest = rl.Rectangle.init(b.x, b.y, 1000 * sprite_scale, 1000 * sprite_scale);
+        const origin = rl.Vector2.init(@divTrunc(1000 * sprite_scale, 2), @divTrunc(1000 * sprite_scale, 2));
+        rl.drawTexturePro(s, source, dest, origin, 0, .white);
+    }
 }
 
 pub fn shoot(b: *Boomerang) void {
     if (b.shooting) return;
     b.shooting = true;
+    const rad = std.math.degreesToRadians(b.player_rotation.* - 90);
     const direction = rl.Vector2{
-        .x = @cos(b.player_rotation.*),
-        .y = @sin(b.player_rotation.*),
+        .x = @cos(rad),
+        .y = @sin(rad),
     };
     b.target_x = b.player_x.* + direction.x * max_range;
     b.target_y = b.player_y.* + direction.y * max_range;

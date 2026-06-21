@@ -52,15 +52,24 @@ pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
 
 pub fn startup(game: *Game) anyerror!void {
     rl.initAudioDevice();
-    if (builtin.mode != .Debug) {
-        game.mainsound = try rl.loadSound("./resources/maintheme.mp3");
-        rl.playSound(game.mainsound.?);
-    }
+    // if (builtin.mode != .Debug) {
+    game.mainsound = try rl.loadSound("./resources/maintheme.mp3");
+    rl.setSoundVolume(game.mainsound.?, 0.5);
+    rl.playSound(game.mainsound.?);
+    // }
+
+    // init textures
+    // init player
+    try game.player.init();
+    // init arena textures
+    arena.ground = try rl.loadTexture("./resources/ground.png");
+    arena.circle = try rl.loadTexture("./resources/circle.png");
 }
 
 pub fn deinit(game: *Game) void {
     game.allocator.destroy(game.player);
     game.animals.deinit(game.allocator);
+    Animal.deinitAnimalSprites(game.allocator);
 }
 
 pub fn update(game: *Game) !void {
@@ -91,13 +100,13 @@ fn update_playing(game: *Game, delta: f32) !void {
     // camera
     game.camera.target = v2(game.player.x, game.player.y);
     // sound
-    if (builtin.mode != .Debug) {
-        if (game.mainsound) |mainsound| {
-            if (!rl.isSoundPlaying(mainsound)) {
-                rl.playSound(mainsound);
-            }
+    // if (builtin.mode != .Debug) {
+    if (game.mainsound) |mainsound| {
+        if (!rl.isSoundPlaying(mainsound)) {
+            rl.playSound(mainsound);
         }
     }
+    // }
     // hitting stuff with weapon
     var hitqueue = std.ArrayList(usize).empty;
     defer hitqueue.deinit(game.allocator);
@@ -116,7 +125,9 @@ fn update_playing(game: *Game, delta: f32) !void {
     // add animals into arena
     if (game.animal_last_spawned > animal_spawn_rate) {
         const point = gen_rand_point(game.io, arena.arena_radius);
-        try game.animals.append(game.allocator, Animal.new(point.x, point.y, .pig));
+        var animal = Animal.new(point.x, point.y, .pig);
+        try animal.init(game.allocator);
+        try game.animals.append(game.allocator, animal);
         game.animal_last_spawned = 0;
     }
     game.animal_last_spawned += delta;
@@ -155,11 +166,11 @@ fn draw_playing(game: *Game) !void {
     rl.beginMode2D(game.camera);
     defer rl.endMode2D();
 
+    arena.draw();
     game.player.draw();
     for (game.animals.items) |*a| {
         a.draw();
     }
-    arena.draw();
 }
 
 fn draw_startmenu(game: *Game) !void {
