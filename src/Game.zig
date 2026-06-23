@@ -16,6 +16,16 @@ pub const screen_height = 600;
 pub const title = "Wild Circus";
 const animal_spawn_rate = 1.5;
 
+const maintheme_extension = ".ogg";
+const maintheme_path = "./embed_resources/maintheme" ++ maintheme_extension;
+const maintheme_data = @embedFile(maintheme_path);
+const starttheme_extension = ".ogg";
+const starttheme_path = "./embed_resources/starttheme" ++ starttheme_extension;
+const starttheme_data = @embedFile(starttheme_path);
+const gameovertheme_extension = ".ogg";
+const gameovertheme_path = "./embed_resources/gameovertheme" ++ gameovertheme_extension;
+const gameovertheme_data = @embedFile(gameovertheme_path);
+
 // Player
 player: *Player,
 // Animals
@@ -28,6 +38,8 @@ io: std.Io,
 // game running stuff
 camera: rl.Camera2D,
 mainsound: ?rl.Sound = null,
+startsound: ?rl.Sound = null,
+gameoversound: ?rl.Sound = null,
 // scene management
 scene: Scene = .startmenu,
 
@@ -51,19 +63,28 @@ pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
 }
 
 pub fn startup(game: *Game) anyerror!void {
-    rl.initAudioDevice();
-    // if (builtin.mode != .Debug) {
-    game.mainsound = try rl.loadSound("./resources/maintheme.mp3");
-    rl.setSoundVolume(game.mainsound.?, 0.5);
-    rl.playSound(game.mainsound.?);
-    // }
-
+    try game.draw_loading_screen();
+    try game.initAudio();
     // init textures
     // init player
     try game.player.init();
     // init arena textures
     arena.ground = try rl.loadTexture("./resources/ground.png");
     arena.circle = try rl.loadTexture("./resources/circle.png");
+}
+
+pub fn initAudio(game: *Game) !void {
+    if (builtin.os.tag != .emscripten) {
+        rl.initAudioDevice();
+        const wavemain = try rl.loadWaveFromMemory(maintheme_extension, maintheme_data);
+        game.mainsound = rl.loadSoundFromWave(wavemain);
+        const wavestart = try rl.loadWaveFromMemory(starttheme_extension, starttheme_data);
+        game.startsound = rl.loadSoundFromWave(wavestart);
+        const wavegameover = try rl.loadWaveFromMemory(gameovertheme_extension, gameovertheme_data);
+        game.gameoversound = rl.loadSoundFromWave(wavegameover);
+        rl.setSoundVolume(game.startsound.?, 0.5);
+        rl.playSound(game.startsound.?);
+    }
 }
 
 pub fn deinit(game: *Game) void {
@@ -77,7 +98,7 @@ pub fn update(game: *Game) !void {
     switch (game.scene) {
         .playing => try game.update_playing(delta),
         .startmenu => try game.update_startmenu(delta),
-        .deathmenu => try game.update_deathmenu(delta),
+        .gameovermenu => try game.update_gameovermenu(delta),
     }
 }
 
@@ -86,8 +107,7 @@ fn update_playing(game: *Game, delta: f32) !void {
     game.player.move(delta);
     game.player.update(delta);
     if (game.player.is_dead()) {
-        std.debug.print("You died!\n", .{});
-        game.switch_scene(.deathmenu);
+        game.switch_scene(.gameovermenu);
         return;
     }
     // if player collides with animal, take 10 damage
@@ -134,7 +154,7 @@ fn update_playing(game: *Game, delta: f32) !void {
 
     // update animals +
     // make animals follow player
-    std.debug.print("Following player to position: {d},{d}\n", .{ game.player.x, game.player.y });
+    // std.debug.print("Following player to position: {d},{d}\n", .{ game.player.x, game.player.y });
     for (game.animals.items) |*a| {
         a.update(delta);
         a.follow_player(v2(game.player.x, game.player.y), delta);
@@ -142,12 +162,15 @@ fn update_playing(game: *Game, delta: f32) !void {
 }
 
 fn update_startmenu(game: *Game, delta: f32) !void {
-    _ = game;
     _ = delta;
-    // TODO: implement (if needed, if its not handled by UI)
+    if (game.startsound) |startsound| {
+        if (!rl.isSoundPlaying(startsound)) {
+            rl.playSound(startsound);
+        }
+    }
 }
 
-fn update_deathmenu(game: *Game, delta: f32) !void {
+fn update_gameovermenu(game: *Game, delta: f32) !void {
     _ = game;
     _ = delta;
     // TODO: implement (if needed, if its not handled by UI)
@@ -158,22 +181,35 @@ pub fn draw(game: *Game) !void {
     switch (game.scene) {
         .startmenu => try game.draw_startmenu(),
         .playing => try game.draw_playing(),
-        .deathmenu => try game.draw_deathmenu(),
+        .gameovermenu => try game.draw_gameovermenu(),
     }
 }
 
 fn draw_playing(game: *Game) !void {
-    rl.beginMode2D(game.camera);
-    defer rl.endMode2D();
+    {
+        rl.beginMode2D(game.camera);
+        defer rl.endMode2D();
 
-    arena.draw();
-    game.player.draw();
-    for (game.animals.items) |*a| {
-        a.draw();
+        arena.draw();
+        game.player.draw();
+        for (game.animals.items) |*a| {
+            a.draw();
+        }
     }
+    // draw score
+    const score = try std.fmt.allocPrintSentinel(game.allocator, "Score: {d}", .{game.animals_beaten}, 0);
+    defer game.allocator.free(score);
+    const score_fontsize = 32;
+    rl.drawText(score, screen_width / 2 - @divTrunc(rl.measureText(score, score_fontsize), 2), 10, score_fontsize, .white);
+    // draw health
+    const health = try std.fmt.allocPrintSentinel(game.allocator, "Health: {d}", .{game.player.health}, 0);
+    defer game.allocator.free(health);
+    const health_fontsize = 32;
+    rl.drawText(health, 0, 10, health_fontsize, .white);
 }
 
 fn draw_startmenu(game: *Game) !void {
+    arena.draw();
     const titlefontsize = 32;
     const textstart = screen_width / 2 - @divTrunc(rl.measureText(title, titlefontsize), 2);
     rl.drawText(title, textstart, 200, titlefontsize, .green);
@@ -184,7 +220,8 @@ fn draw_startmenu(game: *Game) !void {
     }
 }
 
-fn draw_deathmenu(game: *Game) !void {
+fn draw_gameovermenu(game: *Game) !void {
+    try game.draw_playing();
     const textfontsize = 32;
     const text = "The animals got you!";
     const textstart = screen_width / 2 - @divTrunc(rl.measureText(text, textfontsize), 2);
@@ -196,25 +233,60 @@ fn draw_deathmenu(game: *Game) !void {
     }
 }
 
-const Scene = enum { startmenu, playing, deathmenu };
-// only switches, if it actually can. You cant switch from startmenu to deathmenu for example
+fn draw_loading_screen(game: *Game) !void {
+    _ = game;
+    rl.beginDrawing();
+    defer rl.endDrawing();
+    rl.clearBackground(.gray);
+    const textfontsize = 32;
+    const text = "Loading...";
+    const textstart = screen_width / 2 - @divTrunc(rl.measureText(text, textfontsize), 2);
+    rl.drawText(text, textstart, 200, textfontsize, .green);
+    rl.drawText(text, textstart, 200, textfontsize, .green);
+}
+
+const Scene = enum { startmenu, playing, gameovermenu };
+// only switches, if it actually can. You cant switch from startmenu to gameovermenu for example
 // also dose some resetting if needed
 fn switch_scene(game: *Game, scene: Scene) void {
     switch (scene) {
         .startmenu => {
-            if (game.scene == .deathmenu) {
+            if (game.scene == .gameovermenu) {
+                if (game.gameoversound) |gameoversound| {
+                    if (rl.isSoundPlaying(gameoversound)) {
+                        rl.stopSound(gameoversound);
+                    }
+                }
                 game.scene = .startmenu;
             }
         },
         .playing => {
-            game.reset();
-            if (game.scene == .startmenu or game.scene == .deathmenu) {
+            if (game.scene == .startmenu or game.scene == .gameovermenu) {
+                if (game.gameoversound) |gameoversound| {
+                    if (rl.isSoundPlaying(gameoversound)) {
+                        rl.stopSound(gameoversound);
+                    }
+                }
+                if (game.startsound) |startsound| {
+                    if (rl.isSoundPlaying(startsound)) {
+                        rl.stopSound(startsound);
+                    }
+                }
+                game.reset();
                 game.scene = .playing;
             }
         },
-        .deathmenu => {
+        .gameovermenu => {
             if (game.scene == .playing) {
-                game.scene = .deathmenu;
+                if (game.mainsound) |mainsound| {
+                    if (rl.isSoundPlaying(mainsound)) {
+                        rl.stopSound(mainsound);
+                    }
+                }
+                if (game.gameoversound) |gameoversound| {
+                    rl.playSound(gameoversound);
+                }
+                game.scene = .gameovermenu;
             }
         },
     }

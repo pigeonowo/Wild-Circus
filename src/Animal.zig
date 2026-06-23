@@ -8,6 +8,7 @@ const Animal = @This();
 
 const speed = 50;
 const hitcooldown = 0.5;
+const spinspeed = 7000;
 const pig_sprite_path = "./resources/pig.png";
 const sprite_scale = 0.06;
 
@@ -19,6 +20,7 @@ x: f32,
 y: f32,
 last_hit: f32 = hitcooldown,
 radius: f32 = 20,
+angle: f32 = 0,
 sprite: ?rl.Texture = null,
 
 pub fn new(x: f32, y: f32, t: Type) Animal {
@@ -56,7 +58,7 @@ pub fn draw(a: Animal) void {
         const source = rl.Rectangle.init(0, 0, s_width, s_height);
         const dest = rl.Rectangle.init(a.x, a.y, s_width * sprite_scale, s_height * sprite_scale);
         const origin = rl.Vector2.init(@divTrunc(s_width * sprite_scale, 2), @divTrunc(s_height * sprite_scale, 2));
-        rl.drawTexturePro(s, source, dest, origin, 0, .white);
+        rl.drawTexturePro(s, source, dest, origin, std.math.degreesToRadians(a.angle), .white);
     } else {
         const color: rl.Color = switch (a.t) {
             .pig => .pink,
@@ -72,6 +74,7 @@ pub fn can_hit(a: Animal) bool {
 
 pub fn update(a: *Animal, delta: f32) void {
     a.last_hit += delta;
+    a.angle += spinspeed * delta;
 }
 
 pub fn reset_hit_cooldown(a: *Animal) void {
