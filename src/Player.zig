@@ -19,8 +19,8 @@ y: f32,
 health: i32 = 100,
 rotation: f32, // (angle)
 weapon: Weapon,
-sprite: ?rl.Texture = null,
 spin_speed: f32 = 100,
+sprite: ?rl.Texture = null,
 
 pub fn new(allocator: std.mem.Allocator) !*Player {
     const p = try allocator.create(Player);
@@ -34,13 +34,14 @@ pub fn new(allocator: std.mem.Allocator) !*Player {
 }
 
 // init after raylib has init
-pub fn init(p: *Player) !void {
+pub fn init(p: *Player, io: std.Io) !void {
     if (p.sprite == null) {
         p.sprite = try rl.loadTexture(circlemaster_sprite_path);
     }
+
     switch (p.weapon) {
         .boomerang => |*b| {
-            try b.init();
+            try b.init(io);
         },
     }
 }

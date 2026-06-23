@@ -16,6 +16,8 @@ const max_range = 175;
 const shoot_speed = 450;
 const sprite_path = "./resources/boomerang.png";
 const sprite_scale = 0.04;
+const catch_sound_path = "./resources/catch.ogg";
+const throw_sound_path = "./resources/throw.ogg";
 
 player_x: *f32,
 player_y: *f32,
@@ -29,6 +31,8 @@ returning: bool = false,
 target_x: f32 = 0,
 target_y: f32 = 0,
 sprite: ?rl.Texture = null,
+catch_sound: ?rl.Sound = null,
+throw_sound: ?rl.Sound = null,
 
 pub fn new(player_x: *f32, player_y: *f32, player_rotation: *f32) Boomerang {
     return Boomerang{
@@ -42,7 +46,13 @@ pub fn new(player_x: *f32, player_y: *f32, player_rotation: *f32) Boomerang {
     };
 }
 
-pub fn init(b: *Boomerang) !void {
+pub fn init(b: *Boomerang, io: std.Io) !void {
+    // var sprite_fut = io.async(rl.loadTexture, .{sprite_path});
+    var catch_fut = io.async(rl.loadSound, .{catch_sound_path});
+    var throw_fut = io.async(rl.loadSound, .{throw_sound_path});
+    b.catch_sound = try catch_fut.await(io);
+    b.throw_sound = try throw_fut.await(io);
+    // b.sprite = try sprite_fut.await(io);
     b.sprite = try rl.loadTexture(sprite_path);
 }
 
@@ -72,6 +82,13 @@ pub fn update(b: *Boomerang, delta: f32) void {
     if (b.returning and @abs(b.x - b.player_x.*) < 20 and @abs(b.y - b.player_y.*) < 20) {
         b.shooting = false;
         b.returning = false;
+        // play catching sound
+        if (b.throw_sound) |ts| {
+            rl.stopSound(ts);
+        }
+        if (b.catch_sound) |cs| {
+            rl.playSound(cs);
+        }
     }
     b.last_player_x = b.player_x.*;
     b.last_player_y = b.player_y.*;
@@ -111,6 +128,10 @@ pub fn shoot(b: *Boomerang) void {
     };
     b.target_x = b.player_x.* + direction.x * max_range;
     b.target_y = b.player_y.* + direction.y * max_range;
+    // sound
+    if (b.throw_sound) |ts| {
+        rl.playSound(ts);
+    }
 }
 
 // does the projectile hit an enemy?

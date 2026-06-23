@@ -15,6 +15,7 @@ pub const screen_width = 1000;
 pub const screen_height = 600;
 pub const title = "Wild Circus";
 
+// load sound files into static mem because they can be big
 const maintheme_extension = ".ogg";
 const maintheme_path = "./embed_resources/maintheme" ++ maintheme_extension;
 const maintheme_data = @embedFile(maintheme_path);
@@ -24,6 +25,10 @@ const starttheme_data = @embedFile(starttheme_path);
 const gameovertheme_extension = ".ogg";
 const gameovertheme_path = "./embed_resources/gameovertheme" ++ gameovertheme_extension;
 const gameovertheme_data = @embedFile(gameovertheme_path);
+const shoptheme_extension = ".ogg";
+const shoptheme_path = "./embed_resources/shoptheme" ++ shoptheme_extension;
+const shoptheme_data = @embedFile(shoptheme_path);
+const killsoundeffect_path = "./resources/killsound.ogg";
 
 // Player
 player: *Player,
@@ -31,6 +36,9 @@ player: *Player,
 animals_beaten: u32,
 animals: std.ArrayList(Animal),
 animal_last_spawned: f64 = 0,
+animal_spawn_rate: f32 = 2.5,
+animal_beaten_for_shop: u32 = 10,
+last_animals_beaten_before_shop: u32 = 0,
 // IO + more
 allocator: std.mem.Allocator,
 io: std.Io,
@@ -38,12 +46,14 @@ io: std.Io,
 camera: rl.Camera2D,
 game_running_for: f64 = 0,
 level: i32 = 1,
-animal_spawn_rate: f32 = 2.5,
 // scene management
 scene: Scene = .startmenu,
 mainsound: ?rl.Sound = null,
 startsound: ?rl.Sound = null,
 gameoversound: ?rl.Sound = null,
+shopsound: ?rl.Sound = null,
+// other sounds
+killsound: ?rl.Sound = null,
 
 pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
     const player = try Player.new(allocator);
@@ -69,7 +79,7 @@ pub fn startup(game: *Game) anyerror!void {
     try game.initAudio();
     // init textures
     // init player
-    try game.player.init();
+    try game.player.init(game.io);
     // init arena textures
     arena.ground = try rl.loadTexture("./resources/ground.png");
     arena.circle = try rl.loadTexture("./resources/circle.png");
@@ -78,13 +88,19 @@ pub fn startup(game: *Game) anyerror!void {
 pub fn initAudio(game: *Game) !void {
     if (builtin.os.tag != .emscripten) {
         rl.initAudioDevice();
-        const wavemain = try rl.loadWaveFromMemory(maintheme_extension, maintheme_data);
-        game.mainsound = rl.loadSoundFromWave(wavemain);
-        const wavestart = try rl.loadWaveFromMemory(starttheme_extension, starttheme_data);
-        game.startsound = rl.loadSoundFromWave(wavestart);
-        const wavegameover = try rl.loadWaveFromMemory(gameovertheme_extension, gameovertheme_data);
-        game.gameoversound = rl.loadSoundFromWave(wavegameover);
+        var futures: [4]std.Io.Future(@typeInfo(@TypeOf(load_sound)).@"fn".return_type.?) = .{
+            game.io.async(load_sound, .{ &game.mainsound, @constCast(maintheme_extension), maintheme_data }),
+            game.io.async(load_sound, .{ &game.startsound, @constCast(starttheme_extension), starttheme_data }),
+            game.io.async(load_sound, .{ &game.gameoversound, @constCast(gameovertheme_extension), gameovertheme_data }),
+            game.io.async(load_sound, .{ &game.shopsound, @constCast(shoptheme_extension), shoptheme_data }),
+        };
+        for (&futures) |*f| {
+            try f.await(game.io);
+        }
+        var ks_fut = game.io.async(rl.loadSound, .{killsoundeffect_path});
+        game.killsound = try ks_fut.await(game.io);
         rl.setSoundVolume(game.startsound.?, 0.5);
+        rl.setSoundVolume(game.killsound.?, 0.7);
         rl.playSound(game.startsound.?);
     }
 }
@@ -101,12 +117,14 @@ pub fn update(game: *Game) !void {
         .playing => try game.update_playing(delta),
         .startmenu => try game.update_startmenu(delta),
         .gameovermenu => try game.update_gameovermenu(delta),
+        .shop => try game.update_shop(delta),
     }
 }
 
 fn update_playing(game: *Game, delta: f32) !void {
     game.game_running_for += delta;
     game.handle_difficulty();
+    try game.handle_shop();
     // player updates
     game.player.move(delta);
     game.player.update(delta);
@@ -140,6 +158,9 @@ fn update_playing(game: *Game, delta: f32) !void {
                 if (b.shooting and b.hits(a.x, a.y, a.radius)) {
                     try hitqueue.append(game.allocator, i);
                     game.animals_beaten += 1;
+                    if (game.killsound) |ks| {
+                        rl.playSound(ks);
+                    }
                 }
             }
         },
@@ -180,12 +201,28 @@ fn update_gameovermenu(game: *Game, delta: f32) !void {
     // TODO: implement (if needed, if its not handled by UI)
 }
 
+fn update_shop(game: *Game, delta: f32) !void {
+    _ = delta;
+    // sound
+    if (game.mainsound) |mainsound| {
+        if (rl.isSoundPlaying(mainsound)) {
+            rl.stopSound(mainsound);
+        }
+    }
+    if (game.shopsound) |shopsound| {
+        if (!rl.isSoundPlaying(shopsound)) {
+            rl.playSound(shopsound);
+        }
+    }
+}
+
 pub fn draw(game: *Game) !void {
     rl.clearBackground(.white);
     switch (game.scene) {
         .startmenu => try game.draw_startmenu(),
         .playing => try game.draw_playing(),
         .gameovermenu => try game.draw_gameovermenu(),
+        .shop => try game.draw_shop(),
     }
 }
 
@@ -242,6 +279,13 @@ fn draw_gameovermenu(game: *Game) !void {
     }
 }
 
+fn draw_shop(game: *Game) !void {
+    // playing game in background
+    try game.draw_playing();
+    // TODO: alpha black plane infront so its dimmed
+    // TODO: menu
+}
+
 fn draw_loading_screen(game: *Game) !void {
     _ = game;
     rl.beginDrawing();
@@ -254,7 +298,8 @@ fn draw_loading_screen(game: *Game) !void {
     rl.drawText(text, textstart, 200, textfontsize, .green);
 }
 
-const Scene = enum { startmenu, playing, gameovermenu };
+const Scene = enum { startmenu, playing, gameovermenu, shop };
+
 // only switches, if it actually can. You cant switch from startmenu to gameovermenu for example
 // also dose some resetting if needed
 fn switch_scene(game: *Game, scene: Scene) void {
@@ -283,6 +328,14 @@ fn switch_scene(game: *Game, scene: Scene) void {
                 }
                 game.reset();
                 game.scene = .playing;
+            } else if (game.scene == .shop) {
+                if (game.shopsound) |shopsound| {
+                    if (rl.isSoundPlaying(shopsound)) {
+                        rl.stopSound(shopsound);
+                    }
+                }
+                // dont reset game here
+                game.scene = .playing;
             }
         },
         .gameovermenu => {
@@ -298,6 +351,16 @@ fn switch_scene(game: *Game, scene: Scene) void {
                 game.scene = .gameovermenu;
             }
         },
+        .shop => {
+            if (game.scene == .playing) {
+                if (game.mainsound) |mainsound| {
+                    if (rl.isSoundPlaying(mainsound)) {
+                        rl.stopSound(mainsound);
+                    }
+                }
+                game.scene = .shop;
+            }
+        },
     }
 }
 
@@ -310,6 +373,8 @@ fn reset(game: *Game) void {
     game.game_running_for = 0;
     game.animal_spawn_rate = 2.5;
     game.animals.clearRetainingCapacity();
+    game.animal_beaten_for_shop = 10;
+    game.last_animals_beaten_before_shop = 0;
 }
 
 fn handle_difficulty(game: *Game) void {
@@ -326,14 +391,27 @@ fn handle_difficulty(game: *Game) void {
         game.level = 4;
         game.player.spin_speed += 90;
         game.animal_spawn_rate -= 0.4;
+        game.animal_beaten_for_shop = 20;
     } else if (level3 and game.level == 2) {
         game.level = 3;
         game.player.spin_speed += 30;
         game.animal_spawn_rate -= 0.5;
+        game.animal_beaten_for_shop = 15;
     } else if (level2 and game.level == 1) {
         game.level = 2;
         game.player.spin_speed += 40;
         game.animal_spawn_rate -= 0.7;
+        game.animal_beaten_for_shop = 12;
+    }
+}
+
+fn handle_shop(game: *Game) !void {
+    // switch to shop logic
+    if (game.animals_beaten - game.last_animals_beaten_before_shop >= game.animal_beaten_for_shop) {
+        game.last_animals_beaten_before_shop = game.animals_beaten;
+        // switch to shop
+        game.switch_scene(.shop);
+        return;
     }
 }
 
@@ -349,4 +427,10 @@ fn gen_rand_point(io: std.Io, radius: f32) rl.Vector2 {
     const y = r * std.math.sin(theta);
 
     return v2(x, y);
+}
+
+// sets sound
+fn load_sound(sound: *?rl.Sound, fileformat: [:0]u8, data: []const u8) !void {
+    const wave = try rl.loadWaveFromMemory(fileformat, data);
+    sound.* = rl.loadSoundFromWave(wave);
 }

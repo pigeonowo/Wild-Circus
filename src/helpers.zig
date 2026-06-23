@@ -16,3 +16,7 @@ pub fn go_to(source: rl.Vector2, dest: rl.Vector2, by: f32) rl.Vector2 {
     result.y -= (by * normalized.y);
     return result;
 }
+
+pub fn load_sound_by_path(path: []const u8) !rl.Sound {
+    return rl.loadSound(path);
+}
