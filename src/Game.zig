@@ -14,7 +14,6 @@ const Game = @This();
 pub const screen_width = 1000;
 pub const screen_height = 600;
 pub const title = "Wild Circus";
-const animal_spawn_rate = 1.5;
 
 const maintheme_extension = ".ogg";
 const maintheme_path = "./embed_resources/maintheme" ++ maintheme_extension;
@@ -37,11 +36,14 @@ allocator: std.mem.Allocator,
 io: std.Io,
 // game running stuff
 camera: rl.Camera2D,
+game_running_for: f64 = 0,
+level: i32 = 1,
+animal_spawn_rate: f32 = 2.5,
+// scene management
+scene: Scene = .startmenu,
 mainsound: ?rl.Sound = null,
 startsound: ?rl.Sound = null,
 gameoversound: ?rl.Sound = null,
-// scene management
-scene: Scene = .startmenu,
 
 pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
     const player = try Player.new(allocator);
@@ -103,6 +105,8 @@ pub fn update(game: *Game) !void {
 }
 
 fn update_playing(game: *Game, delta: f32) !void {
+    game.game_running_for += delta;
+    game.handle_difficulty();
     // player updates
     game.player.move(delta);
     game.player.update(delta);
@@ -143,7 +147,7 @@ fn update_playing(game: *Game, delta: f32) !void {
     game.animals.orderedRemoveMany(hitqueue.items);
 
     // add animals into arena
-    if (game.animal_last_spawned > animal_spawn_rate) {
+    if (game.animal_last_spawned > game.animal_spawn_rate) {
         const point = gen_rand_point(game.io, arena.arena_radius);
         var animal = Animal.new(point.x, point.y, .pig);
         try animal.init(game.allocator);
@@ -205,7 +209,12 @@ fn draw_playing(game: *Game) !void {
     const health = try std.fmt.allocPrintSentinel(game.allocator, "Health: {d}", .{game.player.health}, 0);
     defer game.allocator.free(health);
     const health_fontsize = 32;
-    rl.drawText(health, 0, 10, health_fontsize, .white);
+    rl.drawText(health, 10, 10, health_fontsize, .white);
+    // level round
+    const level = try std.fmt.allocPrintSentinel(game.allocator, "level: {d}", .{game.level}, 0);
+    defer game.allocator.free(level);
+    const level_fontsize = 32;
+    rl.drawText(level, 10, 100, level_fontsize, .white);
 }
 
 fn draw_startmenu(game: *Game) !void {
@@ -298,7 +307,34 @@ fn reset(game: *Game) void {
     game.player.y = 0;
     game.animals_beaten = 0;
     game.animal_last_spawned = 0;
+    game.game_running_for = 0;
+    game.animal_spawn_rate = 2.5;
     game.animals.clearRetainingCapacity();
+}
+
+fn handle_difficulty(game: *Game) void {
+    // define levels by how much the game has been going on for
+    const level2 = game.game_running_for > 45;
+    const level3 = game.game_running_for > 120;
+    const level4 = game.game_running_for > 210;
+    const level5 = game.game_running_for > 340;
+    if (level5 and game.level == 4) {
+        game.level = 5;
+        game.player.spin_speed += 100;
+        game.animal_spawn_rate -= 0.3;
+    } else if (level4 and game.level == 3) {
+        game.level = 4;
+        game.player.spin_speed += 90;
+        game.animal_spawn_rate -= 0.4;
+    } else if (level3 and game.level == 2) {
+        game.level = 3;
+        game.player.spin_speed += 30;
+        game.animal_spawn_rate -= 0.5;
+    } else if (level2 and game.level == 1) {
+        game.level = 2;
+        game.player.spin_speed += 40;
+        game.animal_spawn_rate -= 0.7;
+    }
 }
 
 fn gen_rand_point(io: std.Io, radius: f32) rl.Vector2 {

@@ -11,7 +11,6 @@ const Player = @This();
 
 pub const radius = 20;
 const speed = 300;
-const spin_speed = 100;
 const circlemaster_sprite_path = "./resources/circlemaster.png";
 const texture_scale = 0.05;
 
@@ -21,6 +20,7 @@ health: i32 = 100,
 rotation: f32, // (angle)
 weapon: Weapon,
 sprite: ?rl.Texture = null,
+spin_speed: f32 = 100,
 
 pub fn new(allocator: std.mem.Allocator) !*Player {
     const p = try allocator.create(Player);
@@ -82,7 +82,7 @@ pub fn take_damage(p: *Player, amount: i32) void {
 
 pub fn update(p: *Player, delta: f32) void {
     // std.debug.print("p.health: {d}\n", .{p.health});
-    p.rotation += spin_speed * delta;
+    p.rotation += p.spin_speed * delta;
     p.rotation = @mod(p.rotation, 360);
     switch (p.weapon) {
         .boomerang => |*b| {
