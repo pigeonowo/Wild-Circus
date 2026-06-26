@@ -5,9 +5,11 @@ const rg = @import("raygui");
 
 const helpers = @import("helpers.zig");
 const v2 = helpers.v2;
+const toI = helpers.toI;
 const arena = @import("arena.zig");
 const Player = @import("Player.zig");
 const Animal = @import("Animal.zig");
+const shop = @import("shop.zig");
 
 const Game = @This();
 
@@ -29,6 +31,7 @@ const shoptheme_extension = ".ogg";
 const shoptheme_path = "./embed_resources/shoptheme" ++ shoptheme_extension;
 const shoptheme_data = @embedFile(shoptheme_path);
 const killsoundeffect_path = "./resources/killsound.ogg";
+const cardtexture_path = "./resources/card.png";
 
 // Player
 player: *Player,
@@ -46,6 +49,7 @@ io: std.Io,
 camera: rl.Camera2D,
 game_running_for: f64 = 0,
 level: i32 = 1,
+current_shop_items: [2]ItemType = [2]ItemType{ ItemType.weapon_range, ItemType.weapon_range },
 // scene management
 scene: Scene = .startmenu,
 mainsound: ?rl.Sound = null,
@@ -54,6 +58,8 @@ gameoversound: ?rl.Sound = null,
 shopsound: ?rl.Sound = null,
 // other sounds
 killsound: ?rl.Sound = null,
+// other textures
+card_texture: ?rl.Texture = null,
 
 pub fn new(io: std.Io, allocator: std.mem.Allocator) !Game {
     const player = try Player.new(allocator);
@@ -83,6 +89,7 @@ pub fn startup(game: *Game) anyerror!void {
     // init arena textures
     arena.ground = try rl.loadTexture("./resources/ground.png");
     arena.circle = try rl.loadTexture("./resources/circle.png");
+    game.card_texture = try rl.loadTexture(cardtexture_path);
 }
 
 pub fn initAudio(game: *Game) !void {
@@ -170,6 +177,7 @@ fn update_playing(game: *Game, delta: f32) !void {
     // add animals into arena
     if (game.animal_last_spawned > game.animal_spawn_rate) {
         const point = gen_rand_point(game.io, arena.arena_radius);
+        // TODO: Random animal
         var animal = Animal.new(point.x, point.y, .pig);
         try animal.init(game.allocator);
         try game.animals.append(game.allocator, animal);
@@ -241,17 +249,23 @@ fn draw_playing(game: *Game) !void {
     const score = try std.fmt.allocPrintSentinel(game.allocator, "Score: {d}", .{game.animals_beaten}, 0);
     defer game.allocator.free(score);
     const score_fontsize = 32;
-    rl.drawText(score, screen_width / 2 - @divTrunc(rl.measureText(score, score_fontsize), 2), 10, score_fontsize, .white);
+    rl.drawText(score, screen_width / 2 - @divTrunc(rl.measureText(score, score_fontsize), 2), 15, score_fontsize, .white);
     // draw health
     const health = try std.fmt.allocPrintSentinel(game.allocator, "Health: {d}", .{game.player.health}, 0);
     defer game.allocator.free(health);
     const health_fontsize = 32;
-    rl.drawText(health, 10, 10, health_fontsize, .white);
+    rl.drawText(health, 15, 10, health_fontsize, .white);
     // level round
-    const level = try std.fmt.allocPrintSentinel(game.allocator, "level: {d}", .{game.level}, 0);
+    const level = try std.fmt.allocPrintSentinel(game.allocator, "Level: {d}", .{game.level}, 0);
     defer game.allocator.free(level);
     const level_fontsize = 32;
-    rl.drawText(level, 10, 100, level_fontsize, .white);
+    rl.drawText(level, 15, 100, level_fontsize, .white);
+    // line until next shop
+    const percent: f32 = (@as(f32, (@floatFromInt(game.animals_beaten))) - @as(f32, @floatFromInt(game.last_animals_beaten_before_shop))) / @as(f32, @floatFromInt(game.animal_beaten_for_shop));
+    // left rectangle
+    rl.drawRectangle(0, 0, toI(screen_width * percent), 10, .green);
+    // rigfht rectanlge
+    rl.drawRectangle(toI(screen_width * percent), 0, toI(screen_width * (1 - percent)), 10, .black);
 }
 
 fn draw_startmenu(game: *Game) !void {
@@ -283,7 +297,20 @@ fn draw_shop(game: *Game) !void {
     // playing game in background
     try game.draw_playing();
     // TODO: alpha black plane infront so its dimmed
+    rl.drawRectangle(0, 0, screen_width, screen_height, .init(0, 0, 0, 150));
     // TODO: menu
+    if (card(200, 100, game.current_shop_items[0], game.card_texture)) {
+        apply_item(game.current_shop_items[0], game);
+        game.switch_scene(.playing);
+    }
+    if (card(600, 100, game.current_shop_items[1], game.card_texture)) {
+        apply_item(game.current_shop_items[1], game);
+        game.switch_scene(.playing);
+    }
+    // skip button
+    if (shop.skip_button(screen_width / 2 - 50, 400)) {
+        game.switch_scene(.playing);
+    }
 }
 
 fn draw_loading_screen(game: *Game) !void {
@@ -291,6 +318,12 @@ fn draw_loading_screen(game: *Game) !void {
     rl.beginDrawing();
     defer rl.endDrawing();
     rl.clearBackground(.gray);
+    if (arena.ground) |g| {
+        rl.drawTexture(g, 0, 0, .white);
+    }
+    if (arena.circle) |c| {
+        rl.drawTexture(c, 0, 0, .white);
+    }
     const textfontsize = 32;
     const text = "Loading...";
     const textstart = screen_width / 2 - @divTrunc(rl.measureText(text, textfontsize), 2);
@@ -334,6 +367,9 @@ fn switch_scene(game: *Game, scene: Scene) void {
                         rl.stopSound(shopsound);
                     }
                 }
+                if (game.mainsound) |mainsound| {
+                    rl.resumeSound(mainsound);
+                }
                 // dont reset game here
                 game.scene = .playing;
             }
@@ -355,7 +391,7 @@ fn switch_scene(game: *Game, scene: Scene) void {
             if (game.scene == .playing) {
                 if (game.mainsound) |mainsound| {
                     if (rl.isSoundPlaying(mainsound)) {
-                        rl.stopSound(mainsound);
+                        rl.pauseSound(mainsound);
                     }
                 }
                 game.scene = .shop;
@@ -411,8 +447,23 @@ fn handle_shop(game: *Game) !void {
         game.last_animals_beaten_before_shop = game.animals_beaten;
         // switch to shop
         game.switch_scene(.shop);
+        try game.set_shop_items();
         return;
     }
+}
+
+fn set_shop_items(game: *Game) !void {
+    const seed1: u64 = @intCast(@abs(
+        std.Io.Timestamp.now(game.io, .real).toMilliseconds(),
+    ));
+    var seed2: u64 = seed1 + 1236489;
+    const r1 = ItemType.select_random(seed1);
+    var r2 = ItemType.select_random(seed2);
+    while (r2 == r1) {
+        seed2 += 2341352;
+        r2 = ItemType.select_random(seed2);
+    }
+    game.current_shop_items = .{ r1, r2 };
 }
 
 fn gen_rand_point(io: std.Io, radius: f32) rl.Vector2 {
@@ -433,4 +484,92 @@ fn gen_rand_point(io: std.Io, radius: f32) rl.Vector2 {
 fn load_sound(sound: *?rl.Sound, fileformat: [:0]u8, data: []const u8) !void {
     const wave = try rl.loadWaveFromMemory(fileformat, data);
     sound.* = rl.loadSoundFromWave(wave);
+}
+
+// items
+
+pub const ItemType = enum {
+    weapon_size,
+    weapon_range,
+    weapon_speed,
+    healing,
+    nuke,
+
+    pub fn select_random(seed: u64) ItemType {
+        var defrand = std.Random.DefaultPrng.init(seed);
+        var rand = defrand.random();
+        return rand.enumValue(ItemType);
+    }
+
+    pub fn name(i: ItemType) []u8 {
+        return @constCast(switch (i) {
+            .weapon_size => "Weapon Size",
+            .weapon_range => "Weapon Range",
+            .healing => "Healing",
+            .nuke => "Nuke",
+            .weapon_speed => "Weapon Speed",
+        });
+    }
+};
+
+pub fn apply_item(t: ItemType, game: *Game) void {
+    switch (t) {
+        .weapon_size => {
+            switch (game.player.weapon) {
+                .boomerang => |*b| {
+                    b.scale += 0.025;
+                },
+            }
+        },
+        .weapon_range => {
+            switch (game.player.weapon) {
+                .boomerang => |*b| {
+                    b.max_range += 50;
+                },
+            }
+        },
+        .weapon_speed => {
+            switch (game.player.weapon) {
+                .boomerang => |*b| {
+                    b.shoot_speed += 50;
+                },
+            }
+        },
+        .healing => {
+            game.player.health += 40;
+        },
+        .nuke => {
+            game.animals_beaten += @intCast(game.animals.items.len);
+            game.animals.clearRetainingCapacity();
+        },
+    }
+}
+
+pub fn card(
+    x: f32,
+    y: f32,
+    i: ItemType,
+    texture: ?rl.Texture,
+) bool {
+    const rect: rl.Rectangle = .init(x, y, 200, 250);
+    const mouse_pressed = rl.isMouseButtonPressed(.left);
+    const mousepos = rl.getMousePosition();
+    const namebuf: [200:0]u8 = @splat(0);
+    const n = i.name();
+    const name = std.fmt.bufPrintSentinel(@constCast(&namebuf), "{s}", .{n}, 0) catch {
+        @panic("Names should not be over 200 chars long");
+    };
+    const textsize = 22;
+    const posx: i32 = toI(x + @divTrunc(rect.width, 2)) - @divTrunc(rl.measureText(name, textsize), 2);
+    const posy = y + rect.height / 2 - 20;
+
+    if (texture) |t| {
+        rl.drawTexture(t, toI(x), toI(y), .white);
+        rl.drawRectangle(posx - 10, toI(posy - 10), rl.measureText(name, textsize) + 20, 40, .init(0, 0, 0, 150));
+    } else {
+        rl.drawRectangle(toI(x), toI(y), toI(rect.width), toI(rect.height), .black);
+    }
+    rl.drawText(name, posx, toI(posy), textsize, .white);
+
+    return mouse_pressed and rl.checkCollisionPointRec(mousepos, rect);
 }

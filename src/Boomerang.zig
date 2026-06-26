@@ -9,13 +9,7 @@ const toI = helpers.toI;
 
 const Boomerang = @This();
 
-const radius = 15;
-const weapon_offset_x = radius + 10;
-const weapon_offset_y = -radius + -10;
-const max_range = 175;
-const shoot_speed = 450;
 const sprite_path = "./resources/boomerang.png";
-const sprite_scale = 0.04;
 const catch_sound_path = "./resources/catch.ogg";
 const throw_sound_path = "./resources/throw.ogg";
 
@@ -33,6 +27,9 @@ target_y: f32 = 0,
 sprite: ?rl.Texture = null,
 catch_sound: ?rl.Sound = null,
 throw_sound: ?rl.Sound = null,
+max_range: f32 = 175,
+scale: f32 = 0.04,
+shoot_speed: f32 = 450,
 
 pub fn new(player_x: *f32, player_y: *f32, player_rotation: *f32) Boomerang {
     return Boomerang{
@@ -48,15 +45,20 @@ pub fn new(player_x: *f32, player_y: *f32, player_rotation: *f32) Boomerang {
 
 pub fn init(b: *Boomerang, io: std.Io) !void {
     // var sprite_fut = io.async(rl.loadTexture, .{sprite_path});
-    var catch_fut = io.async(rl.loadSound, .{catch_sound_path});
-    var throw_fut = io.async(rl.loadSound, .{throw_sound_path});
-    b.catch_sound = try catch_fut.await(io);
-    b.throw_sound = try throw_fut.await(io);
+    if (builtin.os.tag != .emscripten) {
+        var catch_fut = io.async(rl.loadSound, .{catch_sound_path});
+        var throw_fut = io.async(rl.loadSound, .{throw_sound_path});
+        b.catch_sound = try catch_fut.await(io);
+        b.throw_sound = try throw_fut.await(io);
+    }
     // b.sprite = try sprite_fut.await(io);
     b.sprite = try rl.loadTexture(sprite_path);
 }
 
 pub fn update(b: *Boomerang, delta: f32) void {
+    const radius = b.get_radius();
+    const weapon_offset_x = radius + 10;
+    const weapon_offset_y = -radius - 10;
     if (!b.shooting) {
         const offset = rl.Vector2{ .x = weapon_offset_x, .y = weapon_offset_y };
         const rotated_offset = rl.math.vector2Rotate(offset, std.math.degreesToRadians(b.player_rotation.*));
@@ -66,12 +68,12 @@ pub fn update(b: *Boomerang, delta: f32) void {
     }
     // TODO: use rotation to figure out where to throw
     if (b.returning) {
-        const by = (shoot_speed * delta);
+        const by = (b.shoot_speed * delta);
         const new_pos = helpers.go_to(v2(b.x, b.y), v2(b.player_x.*, b.player_y.*), by);
         b.x = new_pos.x;
         b.y = new_pos.y;
     } else {
-        const by = (shoot_speed * delta);
+        const by = (b.shoot_speed * delta);
         b.go_to(b.target_x, b.target_y, by);
     }
     if (b.reached_target()) {
@@ -103,8 +105,8 @@ pub fn draw(b: Boomerang) void {
             .y = @sin(rad),
         };
         rl.drawLine(
-            toI(b.player_x.* + direction.x * max_range),
-            toI(b.player_y.* + direction.y * max_range),
+            toI(b.player_x.* + direction.x * b.max_range),
+            toI(b.player_y.* + direction.y * b.max_range),
             toI(b.player_x.*),
             toI(b.player_y.*),
             .green,
@@ -112,8 +114,8 @@ pub fn draw(b: Boomerang) void {
     }
     if (b.sprite) |s| {
         const source = rl.Rectangle.init(0, 0, 1000, 1000);
-        const dest = rl.Rectangle.init(b.x, b.y, 1000 * sprite_scale, 1000 * sprite_scale);
-        const origin = rl.Vector2.init(@divTrunc(1000 * sprite_scale, 2), @divTrunc(1000 * sprite_scale, 2));
+        const dest = rl.Rectangle.init(b.x, b.y, 1000 * b.scale, 1000 * b.scale);
+        const origin = rl.Vector2.init(@divTrunc(1000 * b.scale, 2), @divTrunc(1000 * b.scale, 2));
         rl.drawTexturePro(s, source, dest, origin, 0, .white);
     }
 }
@@ -126,8 +128,8 @@ pub fn shoot(b: *Boomerang) void {
         .x = @cos(rad),
         .y = @sin(rad),
     };
-    b.target_x = b.player_x.* + direction.x * max_range;
-    b.target_y = b.player_y.* + direction.y * max_range;
+    b.target_x = b.player_x.* + direction.x * b.max_range;
+    b.target_y = b.player_y.* + direction.y * b.max_range;
     // sound
     if (b.throw_sound) |ts| {
         rl.playSound(ts);
@@ -136,7 +138,11 @@ pub fn shoot(b: *Boomerang) void {
 
 // does the projectile hit an enemy?
 pub fn hits(b: Boomerang, enemyx: f32, enemyy: f32, enemyradius: f32) bool {
-    return rl.checkCollisionCircles(v2(b.x, b.y), radius, v2(enemyx, enemyy), enemyradius);
+    return rl.checkCollisionCircles(v2(b.x, b.y), b.get_radius(), v2(enemyx, enemyy), enemyradius);
+}
+
+fn get_radius(b: Boomerang) f32 {
+    return 600 * b.scale;
 }
 
 fn go_to(b: *Boomerang, destx: f32, desty: f32, by: f32) void {

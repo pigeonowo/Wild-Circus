@@ -34,13 +34,7 @@ pub fn new(x: f32, y: f32, t: Type) Animal {
 pub fn init(a: *Animal, allocator: std.mem.Allocator) !void {
     switch (a.t) {
         .pig => {
-            if (loadedSprites.get(.pig)) |s| {
-                a.sprite = s;
-            } else {
-                const sprite = try rl.loadTexture(pig_sprite_path);
-                try loadedSprites.put(allocator, .pig, sprite);
-                a.sprite = sprite;
-            }
+            try loadSprite(allocator, &a.sprite, .pig, pig_sprite_path);
         },
         else => {},
     }
@@ -86,4 +80,14 @@ pub fn follow_player(a: *Animal, player_pos: rl.Vector2, delta: f32) void {
     const new_pos = helpers.go_to(v2(a.x, a.y), player_pos, by);
     a.x = new_pos.x;
     a.y = new_pos.y;
+}
+
+fn loadSprite(allocator: std.mem.Allocator, s: *?rl.Texture, t: Type, path: [:0]const u8) !void {
+    if (loadedSprites.get(t)) |sprite| {
+        s.* = sprite;
+    } else {
+        const sprite = try rl.loadTexture(path);
+        try loadedSprites.put(allocator, t, sprite);
+        s.* = sprite;
+    }
 }
